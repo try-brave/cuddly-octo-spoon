@@ -1,0 +1,26 @@
+{
+  "save_time": "2026-06-13T15:50:45.756185",
+  "history": [
+    {
+      "role": "system",
+      "content": "你是一个友好的中文助手"
+    },
+    {
+      "role": "user",
+      "content": "提取文字"
+    },
+    {
+      "role": "assistant",
+      "content": "百度网盘\n\n链接: https://pan.baidu.com/s/1qA-Hcs_qbz-m_iSa6axbyA?pwd=hd83\n\n提取码: hd83\n\n夸克网盘\n\n链接：https://pan.quark.cn/s/8f1ff1188904\n\n提取码：CTqE\n\nmega网盘\n\nhttps://mega.nz/file/mqAIVBKK#lkRyzI5Fy8IKXUfWteV9tnrOy5pL6bYKn2BLAMAR6-c"
+    },
+    {
+      "role": "user",
+      "content": "123"
+    },
+    {
+      "role": "assistant",
+      "content": "我看到您输入了\"123\"，请问有什么我可以帮您的吗？\n\n如果您是想确认之前的文字提取：\n- 我已成功提取了图片中的百度网盘、夸克网盘和Mega网盘的链接及提取码\n\n如果您需要其他帮助，比如：\n- 访问这些链接\n- 转换格式\n- 其他文字提取需求\n\n请随时告诉我！"
+    }
+  ],
+  "title": "提取文字"
+}
