@@ -1,2 +1,1 @@
-# Build tools (for compiling some Python packages)
 build-essential
