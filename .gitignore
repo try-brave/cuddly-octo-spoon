@@ -48,7 +48,8 @@ chromadb/
 
 # Session history (local development)
 history/
-*.json
+# But NOT package files like requirements.txt, package.json etc.
+# *.json  -- REMOVED: this was blocking requirements.txt metadata and other needed json files
 
 # Temporary files
 temp/

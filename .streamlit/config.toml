@@ -12,13 +12,16 @@ base = "light"
 
 [client]
 # 显示工具栏
-showErrorDetails = true
+showErrorDetails = false
 toolbarMode = "minimal"
-
-[runner]
-# 快速重新运行
-fastReruns = true
 
 [server]
 # 禁用文件监控（减少资源占用）
 fileWatcherType = "none"
+# 防止 CORS 问题
+enableCORS = false
+enableXsrfProtection = true
+
+[runner]
+# 关闭快速重运行（减少 DOM 冲突）
+fastReruns = false

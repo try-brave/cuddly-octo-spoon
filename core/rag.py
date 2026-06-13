@@ -1,7 +1,8 @@
 import os
+import tempfile
 import httpx
 from typing import List, Dict, Optional, Any
-from chromadb import PersistentClient
+from chromadb import PersistentClient, EphemeralClient
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_community.document_loaders import TextLoader, PyPDFLoader, UnstructuredMarkdownLoader, BSHTMLLoader, UnstructuredWordDocumentLoader, CSVLoader
 from core.config import Config
@@ -48,11 +49,16 @@ class RAGPipeline:
         self.chat_client = ChatClient()
     
     def _init_chromadb(self):
-        """初始化 ChromaDB 客户端"""
+        """初始化 ChromaDB 客户端（云端自动降级为内存模式）"""
         persist_dir = os.path.join(os.path.dirname(__file__), "..", "chromadb")
-        os.makedirs(persist_dir, exist_ok=True)
         
-        self.client = PersistentClient(path=persist_dir)
+        try:
+            os.makedirs(persist_dir, exist_ok=True)
+            self.client = PersistentClient(path=persist_dir)
+        except Exception:
+            # 持久化失败（如 Streamlit Cloud 无文件写入权限），降级为内存模式
+            self.client = EphemeralClient()
+        
         self.collection = self.client.get_or_create_collection(name="documents")
     
     def _load_document(self, file_path: str) -> str:
@@ -472,28 +478,3 @@ class RAGPipeline:
                 "message": f"删除失败: {str(e)}",
                 "chunks_deleted": 0
             }
-
-
-# 全局实例
-rag_pipeline = RAGPipeline()
-
-
-# 便捷函数
-def load_document(file_path: str) -> str:
-    """便捷函数：加载文档"""
-    return rag_pipeline._load_document(file_path)
-
-
-def add_document(file_path: str) -> Dict[str, Any]:
-    """便捷函数：添加文档"""
-    return rag_pipeline.add_document(file_path)
-
-
-def query_rag(query: str, top_k: int = 3) -> str:
-    """便捷函数：查询 RAG"""
-    return rag_pipeline.chat_with_context(query, top_k=top_k)
-
-
-def stream_query_rag(query: str, top_k: int = 3):
-    """便捷函数：流式查询 RAG"""
-    yield from rag_pipeline.stream_chat_with_context(query, top_k=top_k)

@@ -12,6 +12,7 @@ Streamlit 应用主入口
 import streamlit as st
 import base64
 import os
+import tempfile
 import time
 from typing import Dict, List
 
@@ -135,6 +136,10 @@ def render_sidebar() -> None:
         # 会话管理
         st.subheader("会话管理")
         
+        # 用于触发一次性刷新的标记
+        if "needs_rerun" not in st.session_state:
+            st.session_state.needs_rerun = False
+        
         try:
             if st.button("新建对话"):
                 save_history(st.session_state.messages, st.session_state.current_session)
@@ -143,7 +148,7 @@ def render_sidebar() -> None:
                 st.session_state.uploaded_image = None
                 if st.session_state.multimodal_client:
                     st.session_state.multimodal_client.clear_image_context()
-                st.rerun()
+                st.session_state.needs_rerun = True
             
             st.divider()
             
@@ -164,15 +169,15 @@ def render_sidebar() -> None:
                     st.session_state.uploaded_image = None
                     if st.session_state.multimodal_client:
                         st.session_state.multimodal_client.clear_image_context()
-                    st.rerun()
+                    st.session_state.needs_rerun = True
                 
                 delete_options = [s for s in sessions if s.get("filepath") != st.session_state.current_session]
                 if delete_options:
                     to_delete = st.selectbox("删除对话", [""] + delete_options, format_func=lambda x: x["title"] if isinstance(x, dict) else "")
                     if isinstance(to_delete, dict) and st.button("删除"):
                         delete_history_file(to_delete["filepath"])
-                        st.info(f"已删除: {to_delete['title']}")
-                        st.rerun()
+                        st.toast(f"已删除: {to_delete['title']}")
+                        st.session_state.needs_rerun = True
         except Exception as e:
             st.error(f"会话管理错误: {str(e)}")
         
@@ -205,10 +210,10 @@ def render_sidebar() -> None:
                             if st.button("X", key=f"del_{doc['filename']}"):
                                 result = st.session_state.rag_pipeline.delete_document(doc['filename'])
                                 if result.get("success"):
-                                    st.success(f"已删除: {doc['display_name']}")
+                                    st.toast(f"已删除: {doc['display_name']}")
                                 else:
                                     st.error(result.get("message", "删除失败"))
-                                st.rerun()
+                                st.session_state.needs_rerun = True
                 else:
                     st.info("暂无上传的文档")
             except Exception as e:
@@ -219,8 +224,8 @@ def render_sidebar() -> None:
             if st.button("清空所有文档"):
                 try:
                     if st.session_state.rag_pipeline.clear_database():
-                        st.success("所有文档已清空")
-                        st.rerun()
+                        st.toast("所有文档已清空")
+                        st.session_state.needs_rerun = True
                     else:
                         st.error("清空失败")
                 except Exception as e:
@@ -304,7 +309,7 @@ def render_chat_tab() -> None:
                             if len(st.session_state.messages) >= 2:
                                 st.session_state.messages.pop()  # 删除助手消息
                                 st.session_state.messages.pop()  # 删除用户消息
-                            st.rerun()
+                            st.session_state.needs_rerun = True
     
     # 用户输入
     prompt = st.chat_input("说点什么...")
@@ -387,7 +392,7 @@ def render_image_tab() -> None:
     if "image_tab_image" in st.session_state and st.session_state.image_tab_image:
         if st.button("清除图片"):
             st.session_state.image_tab_image = None
-            st.rerun()
+            st.session_state.needs_rerun = True
     
     # OCR 识别
     if "image_tab_image" in st.session_state and st.session_state.image_tab_image:
@@ -436,8 +441,7 @@ def render_rag_tab() -> None:
         if uploaded_docs:
             for doc in uploaded_docs:
                 try:
-                    temp_dir = os.path.join(os.path.dirname(__file__), "temp_uploads")
-                    os.makedirs(temp_dir, exist_ok=True)
+                    temp_dir = tempfile.mkdtemp()
                     temp_path = os.path.join(temp_dir, doc.name)
                     
                     with open(temp_path, "wb") as f:
@@ -497,91 +501,11 @@ def render_rag_tab() -> None:
 
 
 def apply_custom_styles() -> None:
-    """应用自定义 CSS 样式"""
-    st.markdown("""
-    <style>
-    /* 主标题样式 */
-    .stTitle {
-        font-size: 2.5rem !important;
-        font-weight: 700 !important;
-        color: #1F2937 !important;
-    }
-    
-    /* 侧边栏样式 */
-    section[data-testid="stSidebar"] {
-        background-color: #F9FAFB !important;
-    }
-    
-    /* 按钮样式 */
-    .stButton button {
-        border-radius: 8px !important;
-        font-weight: 500 !important;
-        transition: all 0.2s ease !important;
-    }
-    
-    .stButton button:hover {
-        transform: translateY(-1px) !important;
-        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15) !important;
-    }
-    
-    /* 输入框样式 */
-    .stTextInput input, .stChatInput textarea {
-        border-radius: 8px !important;
-        border: 1px solid #E5E7EB !important;
-    }
-    
-    /* 聊天消息样式 */
-    .stChatMessage {
-        border-radius: 12px !important;
-        padding: 16px !important;
-        margin: 8px 0 !important;
-    }
-    
-    /* 标签页样式 */
-    .stTabs [data-baseweb="tab-list"] {
-        gap: 8px !important;
-    }
-    
-    .stTabs [data-baseweb="tab"] {
-        border-radius: 8px 8px 0 0 !important;
-        padding: 12px 24px !important;
-        font-weight: 500 !important;
-    }
-    
-    /* 展开面板样式 */
-    .streamlit-expanderHeader {
-        border-radius: 8px !important;
-        font-weight: 500 !important;
-    }
-    
-    /* 指标卡片样式 */
-    .stMetric {
-        background-color: #F3F4F6 !important;
-        border-radius: 8px !important;
-        padding: 12px !important;
-    }
-    
-    /* 信息提示样式 */
-    .stInfo, .stSuccess, .stWarning, .stError {
-        border-radius: 8px !important;
-    }
-    
-    /* 分隔线样式 */
-    .stDivider {
-        border-color: #E5E7EB !important;
-    }
-    
-    /* 下拉选择框样式 */
-    .stSelectbox {
-        border-radius: 8px !important;
-    }
-    
-    /* 复选框样式 */
-    .stCheckbox {
-        padding: 4px 0 !important;
-    }
-    </style>
-    """, unsafe_allow_html=True)
+    """应用自定义 CSS 样式（从外部文件加载，避免 DOM 冲突）"""
+    css_path = os.path.join(os.path.dirname(__file__), ".streamlit", "style.css")
+    if os.path.exists(css_path):
+        with open(css_path, "r", encoding="utf-8") as f:
+            st.markdown(f"<style>{f.read()}</style>", unsafe_allow_html=True)
 
 
 def main() -> None:
@@ -629,6 +553,12 @@ def main() -> None:
     
     with tab3:
         render_rag_tab()
+    
+    # 延迟 rerun：在所有组件渲染完成后统一执行
+    # 避免 React 虚拟 DOM 和 Streamlit 的 removeChild 冲突
+    if st.session_state.get("needs_rerun", False):
+        st.session_state.needs_rerun = False
+        st.rerun()
 
 
 if __name__ == "__main__":

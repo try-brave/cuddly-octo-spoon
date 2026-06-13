@@ -1,19 +1,19 @@
 # Core dependencies
-streamlit>=1.30.0
-openai>=1.0.0
-python-dotenv>=1.0.0
+streamlit==1.45.1
+openai==1.82.0
+python-dotenv==1.1.0
 
 # RAG dependencies
-langchain>=0.1.0
-langchain-community>=0.0.20
-langchain-core>=0.1.0
-chromadb>=0.4.0
-sentence-transformers>=2.2.0
+langchain==0.3.25
+langchain-community==0.3.4
+langchain-core==0.3.29
+chromadb==1.0.10
 
 # Document processing
-PyPDF2>=3.0.0
-docx2txt>=0.8
-pillow>=10.0.0
+PyPDF2==3.0.1
+docx2txt==0.8
+pillow==11.2.1
 
 # Utilities
-requests>=2.28.0
+httpx==0.28.1
+requests==2.32.3

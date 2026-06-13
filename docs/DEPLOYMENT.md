@@ -58,7 +58,7 @@ Multimodal-Assistant/
 ```toml
 MOONSHOT_API_KEY = "your-api-key-here"
 MOONSHOT_BASE_URL = "https://api.moonshot.cn/v1"
-DEFAULT_MODEL = "moonshot-v1-8k"
+DEFAULT_MODEL = "kimi-k2.5"
 ```
 
 4. 点击 **"Save"**
@@ -91,7 +91,7 @@ DEFAULT_MODEL = "moonshot-v1-8k"
 # API 配置
 MOONSHOT_API_KEY = "sk-xxxxxxxxxxxxxxxx"
 MOONSHOT_BASE_URL = "https://api.moonshot.cn/v1"
-DEFAULT_MODEL = "moonshot-v1-8k"
+DEFAULT_MODEL = "kimi-k2.5"
 
 # 超时配置
 API_TIMEOUT = "60"

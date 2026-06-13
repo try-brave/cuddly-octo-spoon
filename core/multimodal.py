@@ -46,8 +46,8 @@ class NetworkError(MultimodalError):
         super().__init__(message, "network_error")
 
 
-class TimeoutError(MultimodalError):
-    """超时错误"""
+class MultimodalTimeoutError(MultimodalError):
+    """多模态超时错误（避免覆盖 Python 内置 TimeoutError）"""
     def __init__(self, message: str):
         super().__init__(message, "timeout_error")
 
@@ -149,9 +149,9 @@ def _handle_api_error(error: Exception) -> MultimodalError:
     elif isinstance(error, APIConnectionError):
         return NetworkError(f"网络连接失败，请检查网络连接: {str(error)}")
     elif isinstance(error, httpx.ConnectTimeout):
-        return TimeoutError(f"连接超时，请稍后重试: {str(error)}")
+        return MultimodalTimeoutError(f"连接超时，请稍后重试: {str(error)}")
     elif isinstance(error, httpx.ReadTimeout):
-        return TimeoutError(f"读取超时，服务器响应时间过长: {str(error)}")
+        return MultimodalTimeoutError(f"读取超时，服务器响应时间过长: {str(error)}")
     elif isinstance(error, APIError):
         return ServiceError(f"服务错误: {str(error)}")
     else:
@@ -263,7 +263,7 @@ class MultimodalClient:
             ImageError: 图片处理错误
             APIKeyError: API Key 错误
             NetworkError: 网络错误
-            TimeoutError: 超时错误
+            MultimodalTimeoutError: 超时错误
             ServiceError: 服务端错误
         """
         if temperature is None:
@@ -335,7 +335,7 @@ class MultimodalClient:
             ImageError: 图片处理错误
             APIKeyError: API Key 错误
             NetworkError: 网络错误
-            TimeoutError: 超时错误
+            MultimodalTimeoutError: 超时错误
             ServiceError: 服务端错误
         """
         if temperature is None:
