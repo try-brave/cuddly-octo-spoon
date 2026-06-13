@@ -1,5 +1,5 @@
 # Core dependencies
-streamlit==1.45.1
+streamlit==1.37.1
 openai==1.82.0
 python-dotenv==1.1.0
 

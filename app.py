@@ -500,14 +500,6 @@ def render_rag_tab() -> None:
                 st.error(f"问答失败: {str(e)}")
 
 
-def apply_custom_styles() -> None:
-    """应用自定义 CSS 样式（从外部文件加载，避免 DOM 冲突）"""
-    css_path = os.path.join(os.path.dirname(__file__), ".streamlit", "style.css")
-    if os.path.exists(css_path):
-        with open(css_path, "r", encoding="utf-8") as f:
-            st.markdown(f"<style>{f.read()}</style>", unsafe_allow_html=True)
-
-
 def main() -> None:
     """主函数"""
     # 页面配置
@@ -517,9 +509,6 @@ def main() -> None:
         layout="wide",
         initial_sidebar_state="expanded"
     )
-    
-    # 应用自定义样式
-    apply_custom_styles()
     
     # 初始化会话状态
     initialize_session_state()
