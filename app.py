@@ -108,6 +108,10 @@ def initialize_session_state() -> None:
     # 初始化图片
     if "uploaded_image" not in st.session_state:
         st.session_state.uploaded_image = None
+    
+    # 图片标签页的图片
+    if "image_tab_image" not in st.session_state:
+        st.session_state.image_tab_image = None
 
     # 意图提醒状态
     if "show_ocr_reminder" not in st.session_state:
@@ -296,66 +300,71 @@ def render_chat_tab() -> None:
                             st.success("已复制")
                     with col2:
                         if st.button("重新生成", key=f"regen_{i}"):
-                            # 删除当前助手消息，触发重新生成
-                            st.session_state.messages.pop()
+                            # 删除当前助手消息和对应的用户消息
+                            if len(st.session_state.messages) >= 2:
+                                st.session_state.messages.pop()  # 删除助手消息
+                                st.session_state.messages.pop()  # 删除用户消息
                             st.rerun()
     
     # 用户输入
     prompt = st.chat_input("说点什么...")
     if prompt:
-        with st.chat_message("user"):
-            st.markdown(prompt)
-        
-        st.session_state.messages.append({"role": "user", "content": prompt})
-        
-        with st.chat_message("assistant"):
-            start_time = time.time()
-            try:
-                # 先进行意图识别
-                intent_result = st.session_state.intent_router.route(prompt)
-                
-                # 如果是高置信度的特定意图且没有图片，则直接响应
-                if intent_result["is_default"] == False and intent_result["score"] >= 0.7 and not st.session_state.uploaded_image:
-                    full_response = intent_result["result"]
-                    st.markdown(full_response)
-                else:
-                    # 检查是否启用 RAG
-                    if st.session_state.rag_enabled and st.session_state.rag_pipeline:
-                        try:
-                            # 先检索相关文档
-                            retrieved = st.session_state.rag_pipeline.retrieve(prompt, top_k=3)
-                            
-                            if retrieved:
-                                st.write("**参考文档:**")
-                                for i, item in enumerate(retrieved):
-                                    with st.expander(f"文档 {i+1} - {item['metadata'].get('display_name', '未知')}"):
-                                        st.write(item["content"])
+        if st.session_state.client is None:
+            st.error("聊天功能暂不可用，请检查配置")
+        else:
+            with st.chat_message("user"):
+                st.markdown(prompt)
+            
+            st.session_state.messages.append({"role": "user", "content": prompt})
+            
+            with st.chat_message("assistant"):
+                start_time = time.time()
+                try:
+                    # 先进行意图识别
+                    intent_result = st.session_state.intent_router.route(prompt)
+                    
+                    # 如果是高置信度的特定意图且没有图片，则直接响应
+                    if intent_result["is_default"] == False and intent_result["score"] >= 0.7 and not st.session_state.uploaded_image:
+                        full_response = intent_result["result"]
+                        st.markdown(full_response)
+                    else:
+                        # 检查是否启用 RAG
+                        if st.session_state.rag_enabled and st.session_state.rag_pipeline:
+                            try:
+                                # 先检索相关文档
+                                retrieved = st.session_state.rag_pipeline.retrieve(prompt, top_k=3)
                                 
-                                # 使用 RAG 流式对话
-                                response_stream = st.session_state.rag_pipeline.stream_chat_with_context(prompt, top_k=3)
-                                full_response = st.write_stream(response_stream)
-                            else:
-                                # 没有检索到文档，使用普通对话
+                                if retrieved:
+                                    st.write("**参考文档:**")
+                                    for i, item in enumerate(retrieved):
+                                        with st.expander(f"文档 {i+1} - {item['metadata'].get('display_name', '未知')}"):
+                                            st.write(item["content"])
+                                    
+                                    # 使用 RAG 流式对话
+                                    response_stream = st.session_state.rag_pipeline.stream_chat_with_context(prompt, top_k=3)
+                                    full_response = st.write_stream(response_stream)
+                                else:
+                                    # 没有检索到文档，使用普通对话
+                                    response_stream = st.session_state.client.stream_chat(st.session_state.messages)
+                                    full_response = st.write_stream(response_stream)
+                            except Exception as e:
+                                st.error(f"RAG 检索失败: {str(e)}，使用普通对话")
                                 response_stream = st.session_state.client.stream_chat(st.session_state.messages)
                                 full_response = st.write_stream(response_stream)
-                        except Exception as e:
-                            st.error(f"RAG 检索失败: {str(e)}，使用普通对话")
+                        else:
+                            # 未启用 RAG，使用普通对话
                             response_stream = st.session_state.client.stream_chat(st.session_state.messages)
                             full_response = st.write_stream(response_stream)
-                    else:
-                        # 未启用 RAG，使用普通对话
-                        response_stream = st.session_state.client.stream_chat(st.session_state.messages)
-                        full_response = st.write_stream(response_stream)
-            except Exception as e:
-                st.error(f"生成回复失败: {str(e)}")
-                full_response = "抱歉，发生了错误，请稍后再试。"
-                st.markdown(full_response)
+                except Exception as e:
+                    st.error(f"生成回复失败: {str(e)}")
+                    full_response = "抱歉，发生了错误，请稍后再试。"
+                    st.markdown(full_response)
+                
+                elapsed_time = time.time() - start_time
+                st.caption(f"响应时间: {elapsed_time:.2f} 秒")
             
-            elapsed_time = time.time() - start_time
-            st.caption(f"响应时间: {elapsed_time:.2f} 秒")
-        
-        st.session_state.messages.append({"role": "assistant", "content": full_response})
-        save_history(st.session_state.messages, st.session_state.current_session)
+            st.session_state.messages.append({"role": "assistant", "content": full_response})
+            save_history(st.session_state.messages, st.session_state.current_session)
 
 
 def render_image_tab() -> None:
@@ -382,7 +391,9 @@ def render_image_tab() -> None:
     
     # OCR 识别
     if "image_tab_image" in st.session_state and st.session_state.image_tab_image:
-        if st.button("OCR 识别"):
+        if st.session_state.multimodal_client is None:
+            st.error("多模态功能暂不可用，请检查配置")
+        elif st.button("OCR 识别"):
             try:
                 with st.spinner("正在识别..."):
                     ocr_result = st.session_state.multimodal_client.ocr_image(image_base64=st.session_state.image_tab_image)
@@ -393,15 +404,18 @@ def render_image_tab() -> None:
     # 图片问答输入
     image_prompt = st.text_input("输入关于图片的问题...")
     if image_prompt and "image_tab_image" in st.session_state and st.session_state.image_tab_image:
-        try:
-            with st.spinner("正在分析图片..."):
-                response = st.session_state.multimodal_client.chat_with_image(
-                    messages=[{"role": "user", "content": image_prompt}],
-                    image_base64=st.session_state.image_tab_image
-                )
-                st.markdown(response)
-        except Exception as e:
-            st.error(f"图片问答失败: {str(e)}")
+        if st.session_state.multimodal_client is None:
+            st.error("多模态功能暂不可用，请检查配置")
+        else:
+            try:
+                with st.spinner("正在分析图片..."):
+                    response = st.session_state.multimodal_client.chat_with_image(
+                        messages=[{"role": "user", "content": image_prompt}],
+                        image_base64=st.session_state.image_tab_image
+                    )
+                    st.markdown(response)
+            except Exception as e:
+                st.error(f"图片问答失败: {str(e)}")
 
 
 def render_rag_tab() -> None:
@@ -482,10 +496,106 @@ def render_rag_tab() -> None:
                 st.error(f"问答失败: {str(e)}")
 
 
+def apply_custom_styles() -> None:
+    """应用自定义 CSS 样式"""
+    st.markdown("""
+    <style>
+    /* 主标题样式 */
+    .stTitle {
+        font-size: 2.5rem !important;
+        font-weight: 700 !important;
+        color: #1F2937 !important;
+    }
+    
+    /* 侧边栏样式 */
+    section[data-testid="stSidebar"] {
+        background-color: #F9FAFB !important;
+    }
+    
+    /* 按钮样式 */
+    .stButton button {
+        border-radius: 8px !important;
+        font-weight: 500 !important;
+        transition: all 0.2s ease !important;
+    }
+    
+    .stButton button:hover {
+        transform: translateY(-1px) !important;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15) !important;
+    }
+    
+    /* 输入框样式 */
+    .stTextInput input, .stChatInput textarea {
+        border-radius: 8px !important;
+        border: 1px solid #E5E7EB !important;
+    }
+    
+    /* 聊天消息样式 */
+    .stChatMessage {
+        border-radius: 12px !important;
+        padding: 16px !important;
+        margin: 8px 0 !important;
+    }
+    
+    /* 标签页样式 */
+    .stTabs [data-baseweb="tab-list"] {
+        gap: 8px !important;
+    }
+    
+    .stTabs [data-baseweb="tab"] {
+        border-radius: 8px 8px 0 0 !important;
+        padding: 12px 24px !important;
+        font-weight: 500 !important;
+    }
+    
+    /* 展开面板样式 */
+    .streamlit-expanderHeader {
+        border-radius: 8px !important;
+        font-weight: 500 !important;
+    }
+    
+    /* 指标卡片样式 */
+    .stMetric {
+        background-color: #F3F4F6 !important;
+        border-radius: 8px !important;
+        padding: 12px !important;
+    }
+    
+    /* 信息提示样式 */
+    .stInfo, .stSuccess, .stWarning, .stError {
+        border-radius: 8px !important;
+    }
+    
+    /* 分隔线样式 */
+    .stDivider {
+        border-color: #E5E7EB !important;
+    }
+    
+    /* 下拉选择框样式 */
+    .stSelectbox {
+        border-radius: 8px !important;
+    }
+    
+    /* 复选框样式 */
+    .stCheckbox {
+        padding: 4px 0 !important;
+    }
+    </style>
+    """, unsafe_allow_html=True)
+
+
 def main() -> None:
     """主函数"""
     # 页面配置
-    st.set_page_config(page_title="AI 助手", page_icon="🤖")
+    st.set_page_config(
+        page_title="AI 助手",
+        page_icon="🤖",
+        layout="wide",
+        initial_sidebar_state="expanded"
+    )
+    
+    # 应用自定义样式
+    apply_custom_styles()
     
     # 初始化会话状态
     initialize_session_state()

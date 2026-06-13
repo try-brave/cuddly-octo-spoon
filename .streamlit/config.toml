@@ -1,0 +1,24 @@
+[theme]
+# 主题基础配置
+primaryColor = "#4F46E5"
+backgroundColor = "#FFFFFF"
+secondaryBackgroundColor = "#F3F4F6"
+textColor = "#1F2937"
+font = "sans serif"
+
+[theme.base]
+# 使用亮色主题
+base = "light"
+
+[client]
+# 显示工具栏
+showErrorDetails = true
+toolbarMode = "minimal"
+
+[runner]
+# 快速重新运行
+fastReruns = true
+
+[server]
+# 禁用文件监控（减少资源占用）
+fileWatcherType = "none"
