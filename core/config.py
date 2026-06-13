@@ -148,7 +148,9 @@ class Config:
     @staticmethod
     def get_chroma_db_path() -> str:
         """获取 ChromaDB 持久化路径"""
-        return _get_secret("CHROMA_DB_PATH", "chromadb")
+        # Streamlit Cloud 上只有 /tmp 可写，本地开发用项目目录
+        default = "/tmp/chromadb" if os.getenv("STREAMLIT_CLOUD", "0") == "1" else "chromadb"
+        return _get_secret("CHROMA_DB_PATH", default)
     
     # ==================== 便捷方法 ====================
     
