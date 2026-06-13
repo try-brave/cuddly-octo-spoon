@@ -10,6 +10,7 @@ ENV/
 *.egg-info/
 dist/
 build/
+*.egg
 
 # IDE
 .vscode/
@@ -23,7 +24,51 @@ build/
 Thumbs.db
 desktop.ini
 
-# Project specific
-*.log
+# Environment variables (IMPORTANT: Never commit .env files!)
 .env
 .env.local
+.env.*.local
+!.env.example
+
+# Sensitive files
+*.pem
+*.key
+credentials.json
+secrets.json
+
+# Logs
+*.log
+logs/
+
+# Database files (local development)
+chromadb/
+*.db
+*.sqlite
+*.sqlite3
+
+# Session history (local development)
+history/
+*.json
+
+# Temporary files
+temp/
+temp_uploads/
+*.tmp
+*.temp
+
+# Model cache
+models/
+.cache/
+
+# Jupyter notebooks
+.ipynb_checkpoints/
+*.ipynb
+
+# Test coverage
+htmlcov/
+.coverage
+.coverage.*
+coverage.xml
+
+# mypy
+.mypy_cache/

@@ -2,6 +2,8 @@
 
 基于 Moonshot AI 的多模态 AI 助手，支持聊天、图片问答、RAG 文档问答等功能。
 
+**[在线演示](https://share.streamlit.io/)** | **[部署指南](docs/DEPLOYMENT.md)**
+
 ## 功能特性
 
 - **多轮对话**：支持上下文保持的流畅对话体验
