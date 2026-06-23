@@ -1,61 +1,10 @@
 import base64
-import httpx
-import time
-from openai import OpenAI, AuthenticationError, APIConnectionError, APIError
-from typing import List, Dict, Optional, Callable, Any, Generator
+from typing import List, Dict, Optional, Generator, Any
 from PIL import Image
 import io
 
+from core.base_client import BaseClient, APIKeyError, NetworkError, ClientTimeoutError, ServiceError
 from core.config import Config
-from core.utils import (
-    execute_with_retry_temp_fallback,
-    execute_stream_with_retry_temp_fallback
-)
-
-# 从配置中获取常量
-SYSTEM_PROMPT = Config.get_system_prompt()
-DEFAULT_TIMEOUT = Config.get_timeout()
-MAX_RETRY_ATTEMPTS = Config.get_max_retries()
-
-
-# ==================== 自定义异常类 ====================
-
-class MultimodalError(Exception):
-    """多模态错误基类"""
-    def __init__(self, message: str, error_type: str = "unknown"):
-        super().__init__(message)
-        self.error_type = error_type
-        self.message = message
-
-
-class ImageError(MultimodalError):
-    """图片处理错误"""
-    def __init__(self, message: str):
-        super().__init__(message, "image_error")
-
-
-class APIKeyError(MultimodalError):
-    """API Key 错误"""
-    def __init__(self, message: str):
-        super().__init__(message, "api_key_error")
-
-
-class NetworkError(MultimodalError):
-    """网络错误"""
-    def __init__(self, message: str):
-        super().__init__(message, "network_error")
-
-
-class MultimodalTimeoutError(MultimodalError):
-    """多模态超时错误（避免覆盖 Python 内置 TimeoutError）"""
-    def __init__(self, message: str):
-        super().__init__(message, "timeout_error")
-
-
-class ServiceError(MultimodalError):
-    """服务端错误"""
-    def __init__(self, message: str):
-        super().__init__(message, "service_error")
 
 
 # ==================== 图片处理工具函数 ====================
@@ -132,55 +81,25 @@ def resize_image(image_data: bytes, max_size: int = 4 * 1024 * 1024) -> bytes:
         raise ImageError(f"图片调整失败: {str(e)}")
 
 
-# ==================== 异常处理工具函数 ====================
+# ==================== 自定义异常类 ====================
 
-def _handle_api_error(error: Exception) -> MultimodalError:
-    """
-    统一处理 API 错误，返回对应的自定义异常
-    
-    Args:
-        error: 原始异常
-    
-    Returns:
-        对应的自定义异常
-    """
-    if isinstance(error, AuthenticationError):
-        return APIKeyError(f"API Key 无效或未配置: {str(error)}")
-    elif isinstance(error, APIConnectionError):
-        return NetworkError(f"网络连接失败，请检查网络连接: {str(error)}")
-    elif isinstance(error, httpx.ConnectTimeout):
-        return MultimodalTimeoutError(f"连接超时，请稍后重试: {str(error)}")
-    elif isinstance(error, httpx.ReadTimeout):
-        return MultimodalTimeoutError(f"读取超时，服务器响应时间过长: {str(error)}")
-    elif isinstance(error, APIError):
-        return ServiceError(f"服务错误: {str(error)}")
-    else:
-        return MultimodalError(f"未知错误: {str(error)}")
+class MultimodalError(Exception):
+    """多模态错误基类"""
+    def __init__(self, message: str, error_type: str = "unknown"):
+        super().__init__(message)
+        self.error_type = error_type
+        self.message = message
 
 
-def _wrap_api_call(api_call: Callable[[], Any]) -> Callable[[], Any]:
-    """
-    包装 API 调用，添加异常处理
-    
-    Args:
-        api_call: 原始 API 调用函数
-    
-    Returns:
-        包装后的函数，会将异常转换为自定义异常
-    """
-    def wrapper():
-        try:
-            return api_call()
-        except AuthenticationError as e:
-            raise _handle_api_error(e)
-        except Exception as e:
-            raise _handle_api_error(e)
-    return wrapper
+class ImageError(MultimodalError):
+    """图片处理错误"""
+    def __init__(self, message: str):
+        super().__init__(message, "image_error")
 
 
 # ==================== 多模态客户端类 ====================
 
-class MultimodalClient:
+class MultimodalClient(BaseClient):
     """
     多模态客户端 - 支持文本和图片输入
     
@@ -199,20 +118,7 @@ class MultimodalClient:
         Args:
             provider: 模型提供商名称
         """
-        self.provider = provider
-        self.api_key = Config.get_api_key()
-        self.base_url = Config.get_base_url()
-        self.default_model = Config.get_default_model()
-        
-        # 创建 OpenAI 客户端
-        self.client = OpenAI(
-            api_key=self.api_key,
-            base_url=self.base_url,
-            http_client=httpx.Client(
-                timeout=httpx.Timeout(DEFAULT_TIMEOUT),
-                follow_redirects=True,
-            )
-        )
+        super().__init__(provider=provider)
         
         # 图片上下文缓存（用于追问机制）
         self.current_image_base64 = None
@@ -261,14 +167,7 @@ class MultimodalClient:
         
         Raises:
             ImageError: 图片处理错误
-            APIKeyError: API Key 错误
-            NetworkError: 网络错误
-            MultimodalTimeoutError: 超时错误
-            ServiceError: 服务端错误
         """
-        if temperature is None:
-            temperature = Config.get_default_temperature()
-        
         # 处理图片输入
         processed_image_base64 = None
         if image_path:
@@ -290,25 +189,10 @@ class MultimodalClient:
                 # 添加新的多模态消息
                 final_messages.append(self._build_multimodal_message("", processed_image_base64))
         
-        def api_call():
-            return self.client.chat.completions.create(
-                model=self.default_model,
-                messages=final_messages,
-                temperature=temperature
-            )
-        
-        def on_temperature_retry(new_temp):
-            return self.client.chat.completions.create(
-                model=self.default_model,
-                messages=final_messages,
-                temperature=new_temp
-            )
-        
-        completion = execute_with_retry_temp_fallback(
-            _wrap_api_call(api_call),
-            temperature,
-            max_retries=MAX_RETRY_ATTEMPTS,
-            on_temperature_retry=_wrap_api_call(on_temperature_retry)
+        completion = self._create_completion(
+            messages=final_messages,
+            temperature=temperature,
+            stream=False
         )
         return completion.choices[0].message.content
     
@@ -333,14 +217,7 @@ class MultimodalClient:
         
         Raises:
             ImageError: 图片处理错误
-            APIKeyError: API Key 错误
-            NetworkError: 网络错误
-            MultimodalTimeoutError: 超时错误
-            ServiceError: 服务端错误
         """
-        if temperature is None:
-            temperature = Config.get_default_temperature()
-        
         # 处理图片输入
         processed_image_base64 = None
         if image_path:
@@ -359,28 +236,11 @@ class MultimodalClient:
             else:
                 final_messages.append(self._build_multimodal_message("", processed_image_base64))
         
-        def api_call():
-            return self.client.chat.completions.create(
-                model=self.default_model,
-                messages=final_messages,
-                temperature=temperature,
-                stream=True
-            )
-        
-        def on_temperature_retry(new_temp):
-            return self.client.chat.completions.create(
-                model=self.default_model,
-                messages=final_messages,
-                temperature=new_temp,
-                stream=True
-            )
-        
-        yield from execute_stream_with_retry_temp_fallback(
-            api_call,
-            temperature,
-            max_retries=MAX_RETRY_ATTEMPTS,
-            on_temperature_retry=on_temperature_retry
-        )
+        for chunk in self._create_completion_stream(
+            messages=final_messages,
+            temperature=temperature
+        ):
+            yield chunk
     
     def set_image_context(self, image_base64: str):
         """
@@ -441,23 +301,10 @@ class MultimodalClient:
         elif not use_context:
             # 不使用上下文，直接发送文本
             final_messages = [{"role": "user", "content": text}]
-            def api_call():
-                return self.client.chat.completions.create(
-                    model=self.default_model,
-                    messages=final_messages,
-                    temperature=temperature
-                )
-            def on_temperature_retry(new_temp):
-                return self.client.chat.completions.create(
-                    model=self.default_model,
-                    messages=final_messages,
-                    temperature=new_temp
-                )
-            completion = execute_with_retry_temp_fallback(
-                _wrap_api_call(api_call),
-                temperature,
-                max_retries=MAX_RETRY_ATTEMPTS,
-                on_temperature_retry=_wrap_api_call(on_temperature_retry)
+            completion = self._create_completion(
+                messages=final_messages,
+                temperature=temperature,
+                stream=False
             )
             return completion.choices[0].message.content
         else:
@@ -479,25 +326,10 @@ class MultimodalClient:
             ]
         })
         
-        def api_call():
-            return self.client.chat.completions.create(
-                model=self.default_model,
-                messages=final_messages,
-                temperature=temperature
-            )
-        
-        def on_temperature_retry(new_temp):
-            return self.client.chat.completions.create(
-                model=self.default_model,
-                messages=final_messages,
-                temperature=new_temp
-            )
-        
-        completion = execute_with_retry_temp_fallback(
-            _wrap_api_call(api_call),
-            temperature,
-            max_retries=MAX_RETRY_ATTEMPTS,
-            on_temperature_retry=_wrap_api_call(on_temperature_retry)
+        completion = self._create_completion(
+            messages=final_messages,
+            temperature=temperature,
+            stream=False
         )
         response = completion.choices[0].message.content
         
@@ -535,26 +367,11 @@ class MultimodalClient:
             image_to_use = self.current_image_base64
         elif not use_context:
             final_messages = [{"role": "user", "content": text}]
-            def api_call():
-                return self.client.chat.completions.create(
-                    model=self.default_model,
-                    messages=final_messages,
-                    temperature=temperature,
-                    stream=True
-                )
-            def on_temperature_retry(new_temp):
-                return self.client.chat.completions.create(
-                    model=self.default_model,
-                    messages=final_messages,
-                    temperature=new_temp,
-                    stream=True
-                )
-            yield from execute_stream_with_retry_temp_fallback(
-                api_call,
-                temperature,
-                max_retries=MAX_RETRY_ATTEMPTS,
-                on_temperature_retry=on_temperature_retry
-            )
+            for chunk in self._create_completion_stream(
+                messages=final_messages,
+                temperature=temperature
+            ):
+                yield chunk
             return
         else:
             raise ImageError("没有可用的图片上下文，请先上传图片")
@@ -571,28 +388,10 @@ class MultimodalClient:
             ]
         })
         
-        def api_call():
-            return self.client.chat.completions.create(
-                model=self.default_model,
-                messages=final_messages,
-                temperature=temperature,
-                stream=True
-            )
-        
-        def on_temperature_retry(new_temp):
-            return self.client.chat.completions.create(
-                model=self.default_model,
-                messages=final_messages,
-                temperature=new_temp,
-                stream=True
-            )
-        
         full_response = ""
-        for chunk in execute_stream_with_retry_temp_fallback(
-            api_call,
-            temperature,
-            max_retries=MAX_RETRY_ATTEMPTS,
-            on_temperature_retry=on_temperature_retry
+        for chunk in self._create_completion_stream(
+            messages=final_messages,
+            temperature=temperature
         ):
             full_response += chunk
             yield chunk
@@ -650,25 +449,10 @@ class MultimodalClient:
             ]
         }]
         
-        def api_call():
-            return self.client.chat.completions.create(
-                model=self.default_model,
-                messages=final_messages,
-                temperature=temperature
-            )
-        
-        def on_temperature_retry(new_temp):
-            return self.client.chat.completions.create(
-                model=self.default_model,
-                messages=final_messages,
-                temperature=new_temp
-            )
-        
-        completion = execute_with_retry_temp_fallback(
-            _wrap_api_call(api_call),
-            temperature,
-            max_retries=MAX_RETRY_ATTEMPTS,
-            on_temperature_retry=_wrap_api_call(on_temperature_retry)
+        completion = self._create_completion(
+            messages=final_messages,
+            temperature=temperature,
+            stream=False
         )
         response = completion.choices[0].message.content
         
@@ -724,28 +508,10 @@ class MultimodalClient:
             ]
         }]
         
-        def api_call():
-            return self.client.chat.completions.create(
-                model=self.default_model,
-                messages=final_messages,
-                temperature=temperature,
-                stream=True
-            )
-        
-        def on_temperature_retry(new_temp):
-            return self.client.chat.completions.create(
-                model=self.default_model,
-                messages=final_messages,
-                temperature=new_temp,
-                stream=True
-            )
-        
         full_response = ""
-        for chunk in execute_stream_with_retry_temp_fallback(
-            api_call,
-            temperature,
-            max_retries=MAX_RETRY_ATTEMPTS,
-            on_temperature_retry=on_temperature_retry
+        for chunk in self._create_completion_stream(
+            messages=final_messages,
+            temperature=temperature
         ):
             full_response += chunk
             yield chunk
@@ -781,7 +547,7 @@ def chat_with_image(
     client = MultimodalClient()
     
     # 构建消息列表
-    messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+    messages = [{"role": "system", "content": Config.get_system_prompt()}]
     
     if history:
         messages.extend(history)

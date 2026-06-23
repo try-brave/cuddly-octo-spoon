@@ -46,7 +46,7 @@ from core.utils import (
 )
 
 # 异常类
-from core.chat import ChatError, APIKeyError, NetworkError, ChatTimeoutError, ServiceError
+from core.base_client import BaseClientError, APIKeyError, NetworkError, ClientTimeoutError, ServiceError
 
 __all__ = [
     # 配置
@@ -85,9 +85,9 @@ __all__ = [
     'generate_unique_filename',
     
     # 异常类
-    'ChatError',
+    'BaseClientError',
     'APIKeyError',
     'NetworkError',
-    'ChatTimeoutError',
+    'ClientTimeoutError',
     'ServiceError'
 ]

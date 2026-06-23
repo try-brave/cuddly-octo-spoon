@@ -8,132 +8,13 @@
 - 异常处理
 """
 
-import httpx
-import time
-from openai import OpenAI, AuthenticationError, APIConnectionError, APIError
-from typing import List, Dict, Optional, Callable, Any, Generator
+from typing import List, Dict, Optional, Generator, Any
+
+# 导入基础客户端
+from core.base_client import BaseClient, APIKeyError, NetworkError, ClientTimeoutError, ServiceError
 
 # 导入统一配置管理
 from core.config import Config
-
-# 导入工具函数
-from core.utils import (
-    execute_with_retry,
-    execute_stream_with_retry,
-    execute_with_retry_temp_fallback,
-    execute_stream_with_retry_temp_fallback
-)
-
-
-# ==================== 自定义异常类 ====================
-
-class ChatError(Exception):
-    """聊天错误基类"""
-    def __init__(self, message: str, error_type: str = "unknown"):
-        """
-        初始化聊天错误
-        
-        Args:
-            message: 错误消息
-            error_type: 错误类型
-        """
-        super().__init__(message)
-        self.error_type = error_type
-        self.message = message
-
-
-class APIKeyError(ChatError):
-    """API Key 错误"""
-    def __init__(self, message: str):
-        """
-        初始化 API Key 错误
-        
-        Args:
-            message: 错误消息
-        """
-        super().__init__(message, "api_key_error")
-
-
-class NetworkError(ChatError):
-    """网络错误"""
-    def __init__(self, message: str):
-        """
-        初始化网络错误
-        
-        Args:
-            message: 错误消息
-        """
-        super().__init__(message, "network_error")
-
-
-class ChatTimeoutError(ChatError):
-    """聊天超时错误"""
-    def __init__(self, message: str):
-        """
-        初始化超时错误
-        
-        Args:
-            message: 错误消息
-        """
-        super().__init__(message, "timeout_error")
-
-
-class ServiceError(ChatError):
-    """服务端错误"""
-    def __init__(self, message: str):
-        """
-        初始化服务端错误
-        
-        Args:
-            message: 错误消息
-        """
-        super().__init__(message, "service_error")
-
-
-# ==================== 异常处理工具函数 ====================
-
-def _handle_api_error(error: Exception) -> ChatError:
-    """
-    统一处理 API 错误，返回对应的自定义异常
-    
-    Args:
-        error: 原始异常
-    
-    Returns:
-        对应的自定义异常
-    """
-    if isinstance(error, AuthenticationError):
-        return APIKeyError(f"API Key 无效或未配置: {str(error)}")
-    elif isinstance(error, APIConnectionError):
-        return NetworkError(f"网络连接失败，请检查网络连接: {str(error)}")
-    elif isinstance(error, httpx.ConnectTimeout):
-        return ChatTimeoutError(f"连接超时，请稍后重试: {str(error)}")
-    elif isinstance(error, httpx.ReadTimeout):
-        return ChatTimeoutError(f"读取超时，服务器响应时间过长: {str(error)}")
-    elif isinstance(error, APIError):
-        return ServiceError(f"服务错误: {str(error)}")
-    else:
-        return ChatError(f"未知错误: {str(error)}")
-
-
-def _wrap_api_call(api_call: Callable[[], Any]) -> Callable[[], Any]:
-    """
-    包装 API 调用，添加异常处理
-    
-    Args:
-        api_call: 原始 API 调用函数
-    
-    Returns:
-        包装后的函数，会将异常转换为自定义异常
-    """
-    def wrapper():
-        try:
-            return api_call()
-        except AuthenticationError as e:
-            raise _handle_api_error(e)
-        except Exception as e:
-            raise _handle_api_error(e)
-    return wrapper
 
 
 # ==================== 上下文截断工具 ====================
@@ -216,37 +97,10 @@ def chat(
     messages = [{"role": "system", "content": system_prompt}] + truncate_messages(history)
     
     # 创建客户端
-    client = OpenAI(
-        api_key=Config.get_api_key(),
-        base_url=Config.get_base_url(),
-        http_client=httpx.Client(
-            timeout=httpx.Timeout(Config.get_timeout()),
-            follow_redirects=True,
-        )
-    )
+    client = ChatClient()
     
     # 执行 API 调用
-    def api_call():
-        return client.chat.completions.create(
-            model=Config.get_default_model(),
-            messages=messages,
-            temperature=temperature if temperature else Config.get_default_temperature()
-        )
-    
-    def on_temperature_retry(new_temp):
-        return client.chat.completions.create(
-            model=Config.get_default_model(),
-            messages=messages,
-            temperature=new_temp
-        )
-    
-    completion = execute_with_retry_temp_fallback(
-        _wrap_api_call(api_call),
-        temperature if temperature else Config.get_default_temperature(),
-        max_retries=Config.get_max_retries(),
-        on_temperature_retry=_wrap_api_call(on_temperature_retry)
-    )
-    response = completion.choices[0].message.content
+    response = client.chat(messages, temperature=temperature)
     
     # 添加助手回复到历史
     history.append({"role": "assistant", "content": response})
@@ -288,45 +142,23 @@ def stream_chat(
     messages = [{"role": "system", "content": system_prompt}] + truncate_messages(history)
     
     # 创建客户端
-    client = OpenAI(
-        api_key=Config.get_api_key(),
-        base_url=Config.get_base_url(),
-        http_client=httpx.Client(
-            timeout=httpx.Timeout(Config.get_timeout()),
-            follow_redirects=True,
-        )
-    )
+    client = ChatClient()
     
-    # 执行流式 API 调用
-    def api_call():
-        return client.chat.completions.create(
-            model=Config.get_default_model(),
-            messages=messages,
-            temperature=temperature if temperature else Config.get_default_temperature(),
-            stream=True
-        )
+    # 收集完整响应
+    full_response = ""
+    for chunk in client.stream_chat(messages, temperature=temperature):
+        full_response += chunk
+        yield chunk
     
-    def on_temperature_retry(new_temp):
-        return client.chat.completions.create(
-            model=Config.get_default_model(),
-            messages=messages,
-            temperature=new_temp,
-            stream=True
-        )
-    
-    yield from execute_stream_with_retry_temp_fallback(
-        api_call,
-        temperature if temperature else Config.get_default_temperature(),
-        max_retries=Config.get_max_retries(),
-        on_temperature_retry=on_temperature_retry
-    )
+    # 添加助手回复到历史
+    history.append({"role": "assistant", "content": full_response})
 
 
 # ==================== 聊天客户端类 ====================
 
-class ChatClient:
+class ChatClient(BaseClient):
     """
-    聊天客户端类，兼容 Streamlit 应用
+    聊天客户端类
     
     提供完整的聊天功能，包括普通聊天和流式聊天，
     支持多轮对话和 Token 统计。
@@ -339,21 +171,7 @@ class ChatClient:
         Args:
             provider: 模型提供商名称（目前仅支持 moonshot）
         """
-        self.provider = provider
-        self.api_key = Config.get_api_key()
-        self.base_url = Config.get_base_url()
-        self.default_model = Config.get_default_model()
-        self.last_usage = None
-        
-        # 创建 OpenAI 客户端
-        self.client = OpenAI(
-            api_key=self.api_key,
-            base_url=self.base_url,
-            http_client=httpx.Client(
-                timeout=httpx.Timeout(Config.get_timeout()),
-                follow_redirects=True,
-            )
-        )
+        super().__init__(provider=provider)
     
     def chat(self, messages: List[Dict[str, str]], temperature: Optional[float] = None) -> str:
         """
@@ -367,40 +185,13 @@ class ChatClient:
             AI 的回复内容
         
         Raises:
-            ChatError: 各种聊天错误
+            BaseClientError: 各种聊天错误
         """
-        if temperature is None:
-            temperature = Config.get_default_temperature()
-        
-        def api_call():
-            return self.client.chat.completions.create(
-                model=self.default_model,
-                messages=messages,
-                temperature=temperature
-            )
-        
-        def on_temperature_retry(new_temp):
-            return self.client.chat.completions.create(
-                model=self.default_model,
-                messages=messages,
-                temperature=new_temp
-            )
-        
-        completion = execute_with_retry_temp_fallback(
-            _wrap_api_call(api_call),
-            temperature,
-            max_retries=Config.get_max_retries(),
-            on_temperature_retry=_wrap_api_call(on_temperature_retry)
+        completion = self._create_completion(
+            messages=messages,
+            temperature=temperature,
+            stream=False
         )
-        
-        # 记录使用情况
-        if hasattr(completion, 'usage'):
-            self.last_usage = {
-                'total_tokens': completion.usage.total_tokens,
-                'prompt_tokens': completion.usage.prompt_tokens,
-                'completion_tokens': completion.usage.completion_tokens
-            }
-        
         return completion.choices[0].message.content
     
     def stream_chat(self, messages: List[Dict[str, str]], temperature: Optional[float] = None) -> Generator[str, None, None]:
@@ -415,33 +206,14 @@ class ChatClient:
             流式响应内容
         
         Raises:
-            ChatError: 各种聊天错误
+            BaseClientError: 各种聊天错误
         """
-        if temperature is None:
-            temperature = Config.get_default_temperature()
-        
-        def api_call():
-            return self.client.chat.completions.create(
-                model=self.default_model,
-                messages=messages,
-                temperature=temperature,
-                stream=True
-            )
-        
-        def on_temperature_retry(new_temp):
-            return self.client.chat.completions.create(
-                model=self.default_model,
-                messages=messages,
-                temperature=new_temp,
-                stream=True
-            )
-        
-        yield from execute_stream_with_retry_temp_fallback(
-            api_call,
-            temperature,
-            max_retries=Config.get_max_retries(),
-            on_temperature_retry=on_temperature_retry
-        )
+        for chunk in self._create_completion_stream(
+            messages=messages,
+            temperature=temperature,
+            max_tokens=Config.get_max_tokens()  # 优化：添加max_tokens限制
+        ):
+            yield chunk
 
 
 # ==================== 命令行交互 ====================
@@ -471,7 +243,7 @@ def cli_chat() -> None:
             break
         
         if not user_input.strip():
-            print("[W] 请输入内容")
+            print("[!] 请输入内容")
             continue
         
         print("思考中...")
@@ -483,19 +255,19 @@ def cli_chat() -> None:
             
             print(f"\nKimi: {response}")
         except APIKeyError as e:
-            print(f"\n[X] API Key 错误: {e.message}")
+            print(f"\n[!] API Key 错误: {e.message}")
             print("   请检查 .env 文件中的 MOONSHOT_API_KEY 配置")
             break
         except NetworkError as e:
-            print(f"\n[X] 网络错误: {e.message}")
+            print(f"\n[!] 网络错误: {e.message}")
             print("   请检查网络连接后重试")
-        except ChatTimeoutError as e:
-            print(f"\n[X] 超时错误: {e.message}")
+        except ClientTimeoutError as e:
+            print(f"\n[!] 超时错误: {e.message}")
             print("   服务器响应超时，请稍后重试")
         except ServiceError as e:
-            print(f"\n[X] 服务错误: {e.message}")
+            print(f"\n[!] 服务错误: {e.message}")
         except Exception as e:
-            print(f"\n[X] 未知错误: {str(e)}")
+            print(f"\n[!] 未知错误: {str(e)}")
 
 
 if __name__ == "__main__":

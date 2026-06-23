@@ -1,12 +1,25 @@
 import os
 import tempfile
 import httpx
+import logging
+
+logger = logging.getLogger(__name__)
 from typing import List, Dict, Optional, Any
-from chromadb import PersistentClient, EphemeralClient
-from langchain.text_splitter import RecursiveCharacterTextSplitter
+from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_community.document_loaders import TextLoader, PyPDFLoader, UnstructuredMarkdownLoader, BSHTMLLoader, UnstructuredWordDocumentLoader, CSVLoader
 from core.config import Config
 from core.chat import ChatClient
+
+# 延迟导入 chromadb（避免在模块导入时就加载）
+PersistentClient = None
+EphemeralClient = None
+
+
+def _ensure_chromadb_imported():
+    """确保 chromadb 模块已导入（延迟导入）"""
+    global PersistentClient, EphemeralClient
+    if PersistentClient is None:
+        from chromadb import PersistentClient, EphemeralClient
 
 
 class RAGPipeline:
@@ -35,7 +48,15 @@ class RAGPipeline:
         self.supported_formats = ['txt', 'md', 'pdf', 'doc', 'docx', 'html', 'htm', 'csv']
         
         # 初始化向量数据库
-        self._init_chromadb()
+        try:
+            logger.info("开始初始化 ChromaDB...")
+            self._init_chromadb()
+            logger.info("ChromaDB 初始化成功")
+        except Exception as e:
+            import traceback
+            logger.error(f"ChromaDB 初始化失败: {e}")
+            logger.error(f"详细错误: {traceback.format_exc()}")
+            raise RuntimeError(f"ChromaDB 初始化失败: {e}")
         
         # 初始化文本分割器
         self.text_splitter = RecursiveCharacterTextSplitter(
@@ -50,7 +71,21 @@ class RAGPipeline:
     
     def _init_chromadb(self):
         """初始化 ChromaDB 客户端（云端自动降级为内存模式）"""
-        persist_dir = os.path.join(os.path.dirname(__file__), "..", "chromadb")
+        import sys  # 必须在方法开头导入
+        # 确保 chromadb 模块已导入（延迟导入）
+        _ensure_chromadb_imported()
+        
+        # 修复PyInstaller打包后路径错误的问题
+        if hasattr(sys, '_MEIPASS'):
+            # PyInstaller打包模式：使用exe所在目录
+            base_dir = os.path.dirname(sys.executable)
+            logger.info(f"PyInstaller模式，base_dir={base_dir}")
+        else:
+            # 开发模式：使用脚本所在目录
+            base_dir = os.path.dirname(os.path.abspath(__file__))
+            logger.info(f"开发模式，base_dir={base_dir}")
+        persist_dir = os.path.join(base_dir, "chromadb")
+        logger.info(f"ChromaDB persist_dir={persist_dir}")
         
         try:
             os.makedirs(persist_dir, exist_ok=True)
@@ -360,7 +395,8 @@ class RAGPipeline:
         ]
         
         # 调用流式聊天客户端
-        yield from self.chat_client.stream_chat(messages)
+        for chunk in self.chat_client.stream_chat(messages):
+            yield chunk
     
     def clear_database(self) -> bool:
         """

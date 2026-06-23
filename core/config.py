@@ -5,17 +5,10 @@ from dotenv import load_dotenv
 # 加载 .env 文件（本地开发）
 load_dotenv()
 
-# 尝试导入 streamlit secrets（云端部署）
-try:
-    import streamlit as st
-    _has_streamlit = True
-except ImportError:
-    _has_streamlit = False
-
 
 def _get_secret(key: str, default: str = None) -> Optional[str]:
     """
-    获取配置值，优先从 Streamlit Secrets 读取，其次从环境变量读取
+    获取配置值，从环境变量读取
     
     Args:
         key: 配置键名
@@ -24,15 +17,6 @@ def _get_secret(key: str, default: str = None) -> Optional[str]:
     Returns:
         配置值
     """
-    # 优先从 Streamlit Secrets 读取（云端部署）
-    if _has_streamlit:
-        try:
-            if hasattr(st, 'secrets') and key in st.secrets:
-                return st.secrets[key]
-        except Exception:
-            pass
-    
-    # 其次从环境变量读取（本地开发）
     return os.getenv(key, default)
 
 
@@ -40,9 +24,7 @@ class Config:
     """
     统一配置管理类
     
-    支持从以下来源读取配置（按优先级）：
-    1. Streamlit Secrets（云端部署）
-    2. 环境变量 / .env 文件（本地开发）
+    从环境变量 / .env 文件读取配置
     """
     
     # ==================== API 配置 ====================
@@ -103,8 +85,13 @@ class Config:
     
     @staticmethod
     def get_default_temperature() -> float:
-        """获取默认温度参数"""
-        return float(_get_secret("DEFAULT_TEMPERATURE", "1.0"))
+        """获取默认温度参数（注意：kimi-k2.5模型固定为1.0）"""
+        return float(_get_secret("DEFAULT_TEMPERATURE", "1.0"))  # 回退：模型只支持1.0
+    
+    @staticmethod
+    def get_max_tokens() -> int:
+        """获取最大生成token数（防止过长回复）"""
+        return int(_get_secret("MAX_TOKENS", "2000"))  # 新增：限制回复长度
     
     # ==================== 历史记录配置 ====================
     
